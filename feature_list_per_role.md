@@ -94,6 +94,8 @@ Daftar lengkap fitur dan hak akses untuk setiap role dalam aplikasi.
 | Assign game ke event | ✅ | ✅ | ✅ (milik sendiri) | ❌ |
 | Pilih tipe tournament | ✅ | ✅ | ✅ (milik sendiri) | ❌ |
 | Set max peserta | ✅ | ✅ | ✅ (milik sendiri) | ❌ |
+| Kelola sponsor event sendiri | ✅ | ✅ | ✅ (milik sendiri) | ❌ |
+| Lihat sponsor event | ✅ | ✅ | ✅ | ✅ |
 
 ---
 

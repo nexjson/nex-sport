@@ -196,18 +196,31 @@ Menyimpan range nominal total reward dan besaran biaya layanan yang diatur oleh 
 | created_at | datetime | Waktu dibuat |
 | updated_at | datetime | Waktu di-update |
 
+#### 11. 🤝 `EventSponsor` — Sponsor Event Turnamen
+Mencatat daftar sponsor yang ditambahkan oleh Organizer untuk sebuah event turnamen.
+
+| Kolom | Tipe | Keterangan |
+|-------|------|------------|
+| id | int PK | |
+| event_id | int FK | Menghubungkan ke Event terkait |
+| name | string | Nama sponsor |
+| banner | string | Path file gambar banner/logo sponsor |
+| url | string (null) | URL website/sosmed sponsor |
+| created_at | datetime | Waktu dibuat |
+| updated_at | datetime | Waktu di-update |
+
 ---
 
 ### B. Kolom yang Hilang di Tabel Existing
 
-#### 11. 🔐 User — Authentication Fields
+#### 12. 🔐 User — Authentication Fields
 ```
 + password        (string)  — Hash password
 + email_verified   (boolean) — Status verifikasi email
 + last_login       (datetime)
 ```
 
-#### 12. 📅 Event — Waktu & Status
+#### 13. 📅 Event — Waktu & Status
 ```
 + start_date      (datetime) — Tanggal mulai
 + end_date        (datetime) — Tanggal selesai
@@ -219,7 +232,7 @@ Menyimpan range nominal total reward dan besaran biaya layanan yang diatur oleh 
 + tournament_type  (enum: single_elimination, double_elimination, round_robin, swiss)
 ```
 
-#### 13. 🏅 Reward — Detail Tipe Hadiah
+#### 14. 🏅 Reward — Detail Tipe Hadiah
 ```
 + reward_type     (enum: CUP_DIGITAL | PRICE | VOUCHER) — Tipe hadiah
 + title           (string)  — "Juara 1", "Juara 2", "MVP"
@@ -227,7 +240,7 @@ Menyimpan range nominal total reward dan besaran biaya layanan yang diatur oleh 
 + price           (int, null) — Nominal uang jika PRICE, nilai voucher jika VOUCHER
 ```
 
-#### 14. 👥 Squad — Menghubungkan ke Team & Game
+#### 15. 👥 Squad — Menghubungkan ke Team & Game
 ```
 + team_id         (int FK)  — Menghubungkan squad dengan Team induk
 + game_id         (int FK)  — Menghubungkan dengan Game spesifik (e.g., MLBB)
@@ -235,7 +248,7 @@ Menyimpan range nominal total reward dan besaran biaya layanan yang diatur oleh 
 + status          (enum: active, inactive, disbanded)
 ```
 
-#### 15. 🎮 Player — Pembatasan 1 Squad & Detail
+#### 16. 🎮 Player — Pembatasan 1 Squad & Detail
 ```
 + squad_id        (int FK, null) — Foreign Key ke Squad (nullable jika free agent). 1 Player hanya bisa di 1 Squad pada satu waktu.
 + game_id         (int FK)  — Game utama/divisi game yang dipilih saat registrasi mandiri (e.g., Mobile Legends). Player hanya bisa masuk/melamar ke Squad dengan game_id yang sama.
@@ -243,7 +256,7 @@ Menyimpan range nominal total reward dan besaran biaya layanan yang diatur oleh 
 + jersey_number   (int)     — Nomor punggung (sport)
 ```
 
-#### 16. ⏱️ Semua Tabel — Timestamps
+#### 17. ⏱️ Semua Tabel — Timestamps
 ```
 + created_at      (datetime)
 + updated_at      (datetime)
@@ -281,6 +294,7 @@ erDiagram
     ORGANIZER ||--o{ EVENT : "creates"
     EVENT ||--o{ EVENT_GAMES : "includes"
     EVENT ||--o{ EVENT_PAYMENT : "verifies publishing"
+    EVENT ||--o{ EVENT_SPONSOR : "sponsored by"
     GAMES ||--o{ EVENT_GAMES : "played_in"
     EVENT_GAMES ||--o{ REWARD : "prizes"
     REWARD ||--o{ REWARD_CLAIM : "awarded"
@@ -422,6 +436,15 @@ erDiagram
         int verified_by_id FK "Nullable"
         datetime verified_at "Nullable"
         datetime created_at
+    }
+    EVENT_SPONSOR {
+        int id PK
+        int event_id FK
+        string name
+        string banner
+        string url "Nullable"
+        datetime created_at
+        datetime updated_at
     }
     EVENT_GAMES {
         int id PK
