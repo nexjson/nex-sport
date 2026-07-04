@@ -140,6 +140,15 @@ Menghubungkan squad dengan event games (many-to-many).
 | squad_id | int FK | Tim yang mendaftar |
 | event_games_id | int FK | Game dalam event |
 | status | enum | `pending`, `approved`, `rejected` |
+| payment_status | enum | `free`, `unpaid`, `paid`, `refunded` |
+| ticket_price | int | Harga tiket dasar yang berlaku saat transaksi |
+| admin_fee | int | Biaya layanan admin yang berlaku saat transaksi |
+| amount_paid | int | Total nominal yang dibayarkan (ticket_price + admin_fee) |
+| payment_method | string (null) | Metode pembayaran (Bank, E-Wallet, dll) |
+| payment_receipt | string (null) | ID Transaksi / Bukti Bayar pendaftaran |
+| paid_at | datetime (null) | Waktu pembayaran pendaftaran |
+| refunded_at | datetime (null) | Waktu refund jika pendaftaran ditolak |
+| refund_receipt | string (null) | Bukti transfer / ID Transaksi Refund pendaftaran |
 | registered_at | datetime | Waktu pendaftaran |
 
 #### 7. 📊 `Standing` — Klasemen (untuk Round Robin)
@@ -164,9 +173,11 @@ Mencatat pembayaran organizer untuk penerbitan event dengan reward berbayar (PRI
 | service_fee | int | Biaya layanan platform |
 | payment_receipt | string (null) | Foto bukti pembayaran |
 | voucher_code | string (null) | Kode voucher diskon/gratis jika digunakan |
-| status | enum | `"pending"`, `"approved"`, `"rejected"` |
+| status | enum | `"pending"`, `"approved"`, `"rejected"`, `"refunded"` |
 | verified_by_id | int FK (null) | Admin yang memverifikasi |
 | verified_at | datetime (null) | Tanggal verifikasi |
+| refunded_at | datetime (null) | Tanggal pengembalian dana (refund) |
+| refund_receipt | string (null) | Bukti transfer / ID Transaksi Refund |
 | created_at | datetime | Waktu request pembayaran |
 
 #### 9. 🎁 `RewardClaim` — Klaim & Payout Hadiah
@@ -176,11 +187,16 @@ Mencatat detail penyerahan reward kepada pemenang setelah turnamen selesai.
 |-------|------|------------|
 | id | int PK | |
 | reward_id | int FK | Hadiah yang didapatkan |
+| amount | int | Nominal hadiah yang dibayarkan (Audit Trail) |
 | squad_id | int FK (null) | Tim pemenang (jika reward tim) |
 | player_id | int FK (null) | Player pemenang (jika reward individu/MVP) |
+| claimed_by_id | int FK | User yang mengajukan penarikan/klaim |
 | status | enum | `"pending"`, `"processing"`, `"paid"`, `"failed"` |
 | payment_method | string (null) | Metode pembayaran (Bank, E-Wallet, dll) |
-| payment_receipt | string (null) | Bukti bayar transfer hadiah dari organizer |
+| bank_name | string (null) | Nama Bank/E-Wallet tujuan (e.g. BCA, GOPAY) |
+| account_number | string (null) | Nomor Rekening / No. HP E-Wallet |
+| account_name | string (null) | Nama Pemilik Rekening |
+| payment_receipt | string (null) | Bukti transfer / ID Transaksi Payout Gateway otomatis |
 | claimed_at | datetime | Waktu klaim tercatat |
 | paid_at | datetime (null) | Waktu dana ditransfer |
 
@@ -228,16 +244,15 @@ Mencatat daftar sponsor yang ditambahkan oleh Organizer untuk sebuah event turna
 + registration_end   (datetime) — Tutup pendaftaran
 + status          (enum: draft, waiting_payment, waiting_verification, registration, ongoing, completed, cancelled) — Status event, termasuk approval berbayar
 + location        (string)   — Lokasi event (untuk sport)
-+ max_participants (int)     — Batas peserta
 + tournament_type  (enum: single_elimination, double_elimination, round_robin, swiss)
 ```
 
 #### 14. 🏅 Reward — Detail Tipe Hadiah
 ```
-+ reward_type     (enum: CUP_DIGITAL | PRICE | VOUCHER) — Tipe hadiah
++ reward_type     (enum: CUP_DIGITAL | PRIZE | VOUCHER) — Tipe hadiah
 + title           (string)  — "Juara 1", "Juara 2", "MVP"
 + description     (string)  — Detail hadiah
-+ price           (int, null) — Nominal uang jika PRICE, nilai voucher jika VOUCHER
++ prize_amount    (int, null) — Nominal uang jika PRIZE, nilai voucher jika VOUCHER
 ```
 
 #### 15. 👥 Squad — Menghubungkan ke Team & Game
@@ -250,6 +265,7 @@ Mencatat daftar sponsor yang ditambahkan oleh Organizer untuk sebuah event turna
 
 #### 16. 🎮 Player — Pembatasan 1 Squad & Detail
 ```
++ user_id         (int FK)  — Menghubungkan Player dengan User
 + squad_id        (int FK, null) — Foreign Key ke Squad (nullable jika free agent). 1 Player hanya bisa di 1 Squad pada satu waktu.
 + game_id         (int FK)  — Game utama/divisi game yang dipilih saat registrasi mandiri (e.g., Mobile Legends). Player hanya bisa masuk/melamar ke Squad dengan game_id yang sama.
 + game_role_id    (int FK)  — Role game yang dimiliki (FK to GameRole, e.g. Tank, Striker, Mage). Harus sesuai dengan game_id yang dipilih.
@@ -279,43 +295,45 @@ Mencatat daftar sponsor yang ditambahkan oleh Organizer untuk sebuah event turna
 
 ```mermaid
 erDiagram
-    ROLES ||--o{ USER : "has"
-    USER ||--o{ ORGANIZER : "manages"
-    USER ||--o{ TEAM : "owns"
-    TEAM ||--o{ SQUAD : "has divisions"
-    GAMES ||--o{ SQUAD : "played_in"
-    GAMES ||--o{ GAME_ROLE : "has roles"
-    GAME_ROLE ||--o{ PLAYER : "assigned to"
-    SQUAD ||--o{ PLAYER : "contains"
-    SQUAD ||--o{ TRANSFER_HISTORY : "from/to"
-    SQUAD ||--o{ SQUAD_REQUEST : "receives/sends"
-    PLAYER ||--o{ TRANSFER_HISTORY : "transferred"
-    PLAYER ||--o{ SQUAD_REQUEST : "sends/receives"
-    ORGANIZER ||--o{ EVENT : "creates"
-    EVENT ||--o{ EVENT_GAMES : "includes"
-    EVENT ||--o{ EVENT_PAYMENT : "verifies publishing"
-    EVENT ||--o{ EVENT_SPONSOR : "sponsored by"
-    GAMES ||--o{ EVENT_GAMES : "played_in"
-    EVENT_GAMES ||--o{ REWARD : "prizes"
-    REWARD ||--o{ REWARD_CLAIM : "awarded"
-    SQUAD ||--o{ REWARD_CLAIM : "receives"
-    PLAYER ||--o{ REWARD_CLAIM : "receives"
-    EVENT_GAMES ||--o{ MATCH : "scheduled_in"
-    EVENT_GAMES ||--o{ REGISTRATION : "accepts"
-    EVENT_GAMES ||--o{ STANDING : "ranks"
-    SQUAD ||--o{ REGISTRATION : "registers"
-    SQUAD ||--o{ STANDING : "ranked_in"
-    SQUAD ||--o{ MATCH : "plays_home"
-    SQUAD ||--o{ MATCH : "plays_away"
+    roles ||--o{ users : "has"
+    users ||--o{ organizers : "manages"
+    users ||--o{ teams : "owns"
+    users ||--o{ players : "has profile"
+    users ||--o{ reward_claims : "claims"
+    teams ||--o{ squads : "has divisions"
+    games ||--o{ squads : "played_in"
+    games ||--o{ game_roles : "has roles"
+    game_roles ||--o{ players : "assigned to"
+    squads ||--o{ players : "contains"
+    squads ||--o{ transfer_histories : "from/to"
+    squads ||--o{ squad_requests : "receives/sends"
+    players ||--o{ transfer_histories : "transferred"
+    players ||--o{ squad_requests : "sends/receives"
+    organizers ||--o{ events : "creates"
+    events ||--o{ event_games : "includes"
+    events ||--o{ event_payments : "verifies publishing"
+    events ||--o{ event_sponsors : "sponsored by"
+    games ||--o{ event_games : "played_in"
+    event_games ||--o{ rewards : "prizes"
+    rewards ||--o{ reward_claims : "awarded"
+    squads ||--o{ reward_claims : "receives"
+    players ||--o{ reward_claims : "receives"
+    event_games ||--o{ matches : "scheduled_in"
+    event_games ||--o{ registrations : "accepts"
+    event_games ||--o{ standings : "ranks"
+    squads ||--o{ registrations : "registers"
+    squads ||--o{ standings : "ranked_in"
+    squads ||--o{ matches : "plays_home"
+    squads ||--o{ matches : "plays_away"
 
-    ROLES {
+    roles {
         int id PK
         string name
         boolean status
         datetime created_at
         datetime updated_at
     }
-    USER {
+    users {
         int id PK
         string username UK
         string name
@@ -325,11 +343,12 @@ erDiagram
         string images
         int role_id FK
         boolean status
+        boolean email_verified
         datetime last_login
         datetime created_at
         datetime updated_at
     }
-    GAMES {
+    games {
         int id PK
         string name
         enum category "esport | sport"
@@ -337,23 +356,23 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    GAME_ROLE {
+    game_roles {
         int id PK
         int game_id FK
         string name
         string description
     }
-    ORGANIZER {
+    organizers {
         int id PK
         string name
         string logo
-        string descriptions
+        string description
         boolean status
         int user_id FK
         datetime created_at
         datetime updated_at
     }
-    TEAM {
+    teams {
         int id PK
         string name
         string short_name
@@ -364,20 +383,21 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    SQUAD {
+    squads {
         int id PK
         int team_id FK
         int game_id FK
         string name
-        string sort_name
+        string short_name
         string logo
         int max_players
         enum status "active | inactive | disbanded"
         datetime created_at
         datetime updated_at
     }
-    PLAYER {
+    players {
         int id PK
+        int user_id FK
         string name
         string nickname
         string photo
@@ -388,7 +408,7 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    TRANSFER_HISTORY {
+    transfer_histories {
         int id PK
         int player_id FK
         int from_squad_id FK "Nullable"
@@ -398,7 +418,7 @@ erDiagram
         datetime transfer_date
         datetime created_at
     }
-    SQUAD_REQUEST {
+    squad_requests {
         int id PK
         int squad_id FK
         int player_id FK
@@ -408,15 +428,14 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    EVENT {
+    events {
         int id PK
         string name
         string description
         string banner
         int organizer_id FK
-        enum tournament_type "single_elim | double_elim | round_robin"
+        enum tournament_type "single_elimination | double_elimination | round_robin | swiss"
         string location
-        int max_participants
         datetime start_date
         datetime end_date
         datetime registration_start
@@ -425,19 +444,21 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    EVENT_PAYMENT {
+    event_payments {
         int id PK
         int event_id FK
         int amount
         int service_fee
         string payment_receipt "Nullable"
         string voucher_code "Nullable"
-        enum status "pending | approved | rejected"
+        enum status "pending | approved | rejected | refunded"
         int verified_by_id FK "Nullable"
         datetime verified_at "Nullable"
+        datetime refunded_at "Nullable"
+        string refund_receipt "Nullable"
         datetime created_at
     }
-    EVENT_SPONSOR {
+    event_sponsors {
         int id PK
         int event_id FK
         string name
@@ -446,58 +467,75 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
-    EVENT_GAMES {
+    event_games {
         int id PK
         int games_id FK
         int event_id FK
+        int ticket_price
+        int max_participants
+        int admin_ticket_fee
         datetime created_at
     }
-    REWARD {
+    rewards {
         int id PK
         int event_games_id FK
-        string reward_type "CUP_DIGITAL | PRICE | VOUCHER"
+        string reward_type "CUP_DIGITAL | PRIZE | VOUCHER"
         int tier
         string title
         string description
-        int price "Nullable"
+        int prize_amount "Nullable"
         datetime created_at
         datetime updated_at
     }
-    REWARD_CLAIM {
+    reward_claims {
         int id PK
         int reward_id FK
+        int amount
         int squad_id FK "Nullable"
         int player_id FK "Nullable"
+        int claimed_by_id FK
         enum status "pending | processing | paid | failed"
         string payment_method "Nullable"
+        string bank_name "Nullable"
+        string account_number "Nullable"
+        string account_name "Nullable"
         string payment_receipt "Nullable"
         datetime claimed_at
         datetime paid_at "Nullable"
     }
-    MATCH {
+    matches {
         int id PK
         int event_games_id FK
         int round
         int match_order
-        int squad_home_id FK
-        int squad_away_id FK
+        int squad_home_id FK "Nullable"
+        int squad_away_id FK "Nullable"
         int score_home
         int score_away
-        int winner_id FK
+        int winner_id FK "Nullable"
         enum status "scheduled | live | completed | cancelled"
         datetime scheduled_at
         datetime created_at
         datetime updated_at
     }
-    REGISTRATION {
+    registrations {
         int id PK
         int squad_id FK
         int event_games_id FK
         enum status "pending | approved | rejected"
+        enum payment_status "free | unpaid | paid | refunded"
+        int ticket_price
+        int admin_fee
+        int amount_paid
+        string payment_method "Nullable"
+        string payment_receipt "Nullable"
+        datetime paid_at "Nullable"
+        datetime refunded_at "Nullable"
+        string refund_receipt "Nullable"
         datetime registered_at
         datetime created_at
     }
-    STANDING {
+    standings {
         int id PK
         int event_games_id FK
         int squad_id FK
@@ -507,7 +545,7 @@ erDiagram
         int points
         datetime updated_at
     }
-    SERVICE_FEE_CONFIG {
+    service_fee_configs {
         int id PK
         int min_reward
         int max_reward

@@ -154,7 +154,30 @@ Daftar lengkap fitur dan hak akses untuk setiap role dalam aplikasi.
 
 ---
 
-## 11. 📊 Dashboard & Reporting
+## 11. 💳 Pembayaran & Penerbitan Event
+
+| Fitur | Super Admin | Admin | Organizer | Player |
+|-------|:-----------:|:-----:|:---------:|:------:|
+| Lihat riwayat pembayaran | ✅ | ✅ | ✅ (event sendiri) | ❌ |
+| Ajukan pembayaran event | ✅ | ❌ | ✅ (event sendiri) | ❌ |
+| Upload bukti bayar event | ✅ | ❌ | ✅ (event sendiri) | ❌ |
+| Approve / Verifikasi pembayaran | ✅ | ✅ | ❌ | ❌ |
+| Reject pembayaran | ✅ | ✅ | ❌ | ❌ |
+| Kelola biaya layanan (config) | ✅ | ✅ | ❌ | ❌ |
+
+---
+
+## 12. 🎁 Klaim & Payout Hadiah
+
+| Fitur | Super Admin | Admin | Organizer | Player |
+|-------|:-----------:|:-----:|:---------:|:------:|
+| Lihat riwayat klaim & payout | ✅ | ✅ | ✅ (event sendiri) | ✅ (terkait sendiri) |
+| Isi info rekening/e-wallet untuk klaim | ✅ | ❌ | ❌ | ✅ (player pemenang) |
+| Payout/transfer reward otomatis | 🤖 Sistem | 🤖 Sistem | 🤖 Sistem | 🤖 Sistem |
+
+---
+
+## 13. 📊 Dashboard & Reporting
 
 | Fitur | Super Admin | Admin | Organizer | Player |
 |-------|:-----------:|:-----:|:---------:|:------:|
@@ -176,6 +199,7 @@ Login → Dashboard (full stats)
   ├─ Kelola Games (CRUD)
   ├─ Kelola Organizers (CRUD)
   ├─ Monitor semua Events & Matches
+  ├─ Verifikasi pembayaran & kelola biaya layanan
   └─ Override/edit data apapun
 ```
 
@@ -185,6 +209,7 @@ Login → Dashboard (operational stats)
   ├─ Kelola Games (tambah/edit)
   ├─ Kelola Organizers (tambah/edit)
   ├─ Monitor Events & approve registrasi
+  ├─ Verifikasi pembayaran event organizer
   └─ Input skor & manage matches
 ```
 
@@ -195,10 +220,12 @@ Login → Dashboard Organizer
   ├─ Buat Event baru
   │    ├─ Pilih games, tipe tournament, jadwal
   │    ├─ Set reward per tier
+  │    ├─ Bayar biaya penerbitan event
   │    └─ Buka registrasi
   ├─ Review & approve pendaftaran squad
   ├─ Generate bracket
   ├─ Input skor pertandingan
+  ├─ Selesaikan Event (Sistem otomatis memicu payout ke pemenang)
   └─ Lihat klasemen & hasil
 ```
 
@@ -211,6 +238,7 @@ Login → Dashboard Player
   │    └─ Set posisi & detail player
   ├─ Browse event yang terbuka
   ├─ Daftarkan squad ke event
+  ├─ Klaim reward (isi rekening/e-wallet untuk payout otomatis)
   ├─ Lihat jadwal match
   ├─ Lihat bracket & klasemen
   └─ Riwayat pertandingan
@@ -232,6 +260,8 @@ Rewards             CRUD           CRU      Own CRUD     Read
 Squads              CRUD           RU       Read         Own CRUD
 Players             CRUD           ─        Read         Own CRUD
 Registrations       CRUD           RU       Own RU       Own CR
+Payments            CRUD           RU       Own CR       ─
+Claims              CRUD           ─        Own RU       Own CR
 Dashboard           Full           Full     Own          Own
 ```
 
