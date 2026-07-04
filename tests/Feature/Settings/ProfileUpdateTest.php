@@ -18,8 +18,10 @@ test('profile information can be updated', function () {
     $response = $this
         ->actingAs($user)
         ->patch(route('profile.update'), [
+            'username' => 'updatedusername',
             'name' => 'Test User',
             'email' => 'test@example.com',
+            'phone' => '081234567890',
         ]);
 
     $response
@@ -30,6 +32,8 @@ test('profile information can be updated', function () {
 
     expect($user->name)->toBe('Test User');
     expect($user->email)->toBe('test@example.com');
+    expect($user->username)->toBe('updatedusername');
+    expect($user->phone)->toBe('081234567890');
     expect($user->email_verified_at)->toBeNull();
 });
 
@@ -39,8 +43,10 @@ test('email verification status is unchanged when the email address is unchanged
     $response = $this
         ->actingAs($user)
         ->patch(route('profile.update'), [
+            'username' => $user->username,
             'name' => 'Test User',
             'email' => $user->email,
+            'phone' => $user->phone,
         ]);
 
     $response
@@ -64,7 +70,7 @@ test('user can delete their account', function () {
         ->assertRedirect(route('home'));
 
     $this->assertGuest();
-    expect($user->fresh())->toBeNull();
+    expect($user->fresh()->trashed())->toBeTrue();
 });
 
 test('correct password must be provided to delete account', function () {
