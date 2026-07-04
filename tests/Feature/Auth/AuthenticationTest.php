@@ -75,3 +75,17 @@ test('users are rate limited', function () {
 
     $response->assertTooManyRequests();
 });
+
+test('banned users cannot authenticate', function () {
+    $user = User::factory()->create(['status' => false]);
+
+    $response = $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+    ]);
+
+    $this->assertGuest();
+    $response->assertSessionHasErrors([
+        'email' => 'Akun Anda dinonaktifkan',
+    ]);
+});

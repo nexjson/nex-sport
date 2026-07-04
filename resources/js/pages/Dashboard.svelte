@@ -13,32 +13,24 @@
 
 <script lang="ts">
     import AppHead from '@/components/AppHead.svelte';
-    import PlaceholderPattern from '@/components/PlaceholderPattern.svelte';
+    import SuperAdminDashboard from './dashboard/SuperAdminDashboard.svelte';
+    import AdminDashboard from './dashboard/AdminDashboard.svelte';
+    import OrganizerDashboard from './dashboard/OrganizerDashboard.svelte';
+    import PlayerDashboard from './dashboard/PlayerDashboard.svelte';
+
+    let { auth }: { auth: any } = $props();
 </script>
 
 <AppHead title="Dashboard" />
 
-<div class="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-    <div class="grid auto-rows-min gap-4 md:grid-cols-3">
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-        <div
-            class="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
-        >
-            <PlaceholderPattern />
-        </div>
-    </div>
-    <div
-        class="relative min-h-screen flex-1 rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border"
-    >
-        <PlaceholderPattern />
-    </div>
+<div class="flex-1 rounded-xl p-4 md:p-6 overflow-y-auto">
+    {#if auth?.user?.role === 'super-admin'}
+        <SuperAdminDashboard />
+    {:else if auth?.user?.role === 'admin'}
+        <AdminDashboard />
+    {:else if auth?.user?.role === 'organizer'}
+        <OrganizerDashboard />
+    {:else}
+        <PlayerDashboard />
+    {/if}
 </div>
