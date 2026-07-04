@@ -14,6 +14,12 @@
         "pest-testing",
         "inertia-svelte-development",
         "tailwindcss-development",
-        "deploying-laravel-cloud"
+        "deploying-laravel-cloud",
+        "laravel-patterns",
+        "laravel-security",
+        "laravel-tdd",
+        "laravel-verification",
+        "php-mcp-server-generator",
+        "spatie-laravel-php"
     ]
 }
