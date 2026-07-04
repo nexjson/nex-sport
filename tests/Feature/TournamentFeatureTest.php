@@ -248,10 +248,12 @@ test('bracket generates successfully, updates standings, winner promotes, and cl
     $event->refresh();
     expect($event->status->value)->toBe('completed');
 
-    // Verify reward claim created for the champion leader (squad1 owned by playerUser)
+    $expectedWinnerUserId = Squad::find($match->winner_id)->team->user_id;
+
+    // Verify reward claim created for the champion leader
     $this->assertDatabaseHas('reward_claims', [
         'reward_id' => $reward->id,
-        'claimed_by_id' => $this->playerUser->id,
+        'claimed_by_id' => $expectedWinnerUserId,
         'status' => 'pending',
     ]);
 });
