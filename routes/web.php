@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminPaymentController;
 use App\Http\Controllers\Admin\GameController;
 use App\Http\Controllers\Admin\OrganizerController;
 use App\Http\Controllers\Admin\UserController;
@@ -39,6 +40,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('admin/organizers', [OrganizerController::class, 'store'])->name('admin.organizers.store');
         Route::patch('admin/organizers/{organizer}', [OrganizerController::class, 'update'])->name('admin.organizers.update');
         Route::delete('admin/organizers/{organizer}', [OrganizerController::class, 'destroy'])->name('admin.organizers.destroy');
+
+        // Payment & Service Fee Management
+        Route::get('admin/payments', [AdminPaymentController::class, 'index'])->name('admin.payments.index');
+        Route::post('admin/payments/{id}/verify', [AdminPaymentController::class, 'verify'])->name('admin.payments.verify');
+        Route::post('admin/payments/fee-config', [AdminPaymentController::class, 'updateFeeConfig'])->name('admin.payments.fee-config');
     });
 
     // Organizer Actions
@@ -50,6 +56,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::patch('organizer/events/{id}', [EventController::class, 'update'])->name('organizer.events.update');
         Route::delete('organizer/events/{id}', [EventController::class, 'destroy'])->name('organizer.events.destroy');
 
+        Route::post('organizer/events/{id}/toggle-registration', [EventController::class, 'toggleRegistration'])->name('organizer.events.toggle-registration');
+        Route::post('organizer/events/{id}/status', [EventController::class, 'updateStatus'])->name('organizer.events.status');
         Route::post('organizer/events/{eventId}/games', [EventController::class, 'storeGame'])->name('organizer.events.games.store');
         Route::delete('organizer/events/{eventId}/games/{eventGamesId}', [EventController::class, 'destroyGame'])->name('organizer.events.games.destroy');
         Route::post('organizer/events/{eventId}/sponsors', [EventController::class, 'storeSponsor'])->name('organizer.events.sponsors.store');
@@ -59,6 +67,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('organizer/matches/{eventGamesId}', [MatchController::class, 'index'])->name('organizer.matches.index');
         Route::post('organizer/matches/{eventGamesId}/generate', [MatchController::class, 'generate'])->name('organizer.matches.generate');
         Route::post('organizer/matches/{matchId}/score', [MatchController::class, 'updateScore'])->name('organizer.matches.score');
+        Route::post('organizer/matches/{matchId}/schedule', [MatchController::class, 'updateSchedule'])->name('organizer.matches.schedule');
+        Route::post('organizer/matches/{matchId}/status', [MatchController::class, 'toggleMatchStatus'])->name('organizer.matches.status');
     });
 
     // Player Actions

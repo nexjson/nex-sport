@@ -72,24 +72,45 @@ class MatchController extends Controller
             return redirect()->back()->with('error', 'Bracket has already been generated.');
         }
 
-        // Pre-create all matches for Single Elimination (supporting 2, 4, 8, 16 squads)
-        // Determine rounds needed: log2 of next power of 2
-        $rounds = ceil(log($count, 2));
+        $type = $eventGame->event->tournament_type->value ?? $eventGame->event->tournament_type;
         $squadsList = $approvedRegs->pluck('squad_id')->shuffle()->toArray();
 
-        // Fill list with nulls for BYEs if squad count is not power of 2
+        if ($type === 'single_elimination') {
+            $this->generateSingleElimination($eventGamesId, $squadsList);
+        } elseif ($type === 'double_elimination') {
+            $this->generateDoubleElimination($eventGamesId, $squadsList);
+        } elseif ($type === 'round_robin') {
+            $this->generateRoundRobin($eventGamesId, $squadsList);
+        } elseif ($type === 'swiss') {
+            $this->generateSwiss($eventGamesId, $squadsList);
+        } else {
+            return redirect()->back()->with('error', 'Unsupported tournament type.');
+        }
+
+        // Update event status to ongoing
+        $eventGame->event->update(['status' => EventStatus::Ongoing]);
+
+        return redirect()->back()->with('success', 'Bracket generated and tournament started!');
+    }
+
+    /**
+     * Generate Single Elimination.
+     */
+    private function generateSingleElimination(int $eventGamesId, array $squadsList): void
+    {
+        $count = count($squadsList);
+        $rounds = ceil(log($count, 2));
+
         $bracketSize = pow(2, $rounds);
         while (count($squadsList) < $bracketSize) {
             $squadsList[] = null;
         }
 
-        // Generate round 1 matches
         $matchNumber = 0;
         for ($i = 0; $i < $bracketSize; $i += 2) {
             $homeSquadId = $squadsList[$i];
             $awaySquadId = $squadsList[$i + 1];
 
-            // If both are null, skip. If one is null, it's a BYE
             $winnerId = null;
             $status = MatchStatus::Scheduled;
 
@@ -114,7 +135,6 @@ class MatchController extends Controller
             $matchNumber++;
         }
 
-        // Pre-create next round matches as empty slots
         $currentRoundMatches = $bracketSize / 2;
         for ($r = 2; $r <= $rounds; $r++) {
             $currentRoundMatches = $currentRoundMatches / 2;
@@ -130,13 +150,173 @@ class MatchController extends Controller
             }
         }
 
-        // If any BYEs were resolved, promote their winners to Round 2 immediately!
         $this->promoteWinnersToNextRound($eventGamesId, 1);
+    }
 
-        // Update event status to ongoing
-        $eventGame->event->update(['status' => EventStatus::Ongoing]);
+    /**
+     * Generate Double Elimination.
+     */
+    private function generateDoubleElimination(int $eventGamesId, array $squadsList): void
+    {
+        $count = count($squadsList);
+        $rounds = ceil(log($count, 2));
 
-        return redirect()->back()->with('success', 'Bracket generated and tournament started!');
+        $bracketSize = pow(2, $rounds);
+        while (count($squadsList) < $bracketSize) {
+            $squadsList[] = null;
+        }
+
+        $matchNumber = 0;
+        for ($i = 0; $i < $bracketSize; $i += 2) {
+            $home = $squadsList[$i];
+            $away = $squadsList[$i + 1];
+
+            $winnerId = null;
+            $status = MatchStatus::Scheduled;
+            if ($home !== null && $away === null) {
+                $winnerId = $home;
+                $status = MatchStatus::Completed;
+            } elseif ($home === null && $away !== null) {
+                $winnerId = $away;
+                $status = MatchStatus::Completed;
+            }
+
+            $this->matchRepository->create([
+                'event_games_id' => $eventGamesId,
+                'squad_home_id' => $home,
+                'squad_away_id' => $away,
+                'winner_id' => $winnerId,
+                'round' => 1,
+                'match_order' => $matchNumber,
+                'status' => $status,
+            ]);
+            $matchNumber++;
+        }
+
+        $winnersRound2Matches = $bracketSize / 4;
+        for ($m = 0; $m < $winnersRound2Matches; $m++) {
+            $this->matchRepository->create([
+                'event_games_id' => $eventGamesId,
+                'squad_home_id' => null,
+                'squad_away_id' => null,
+                'round' => 2,
+                'match_order' => $m,
+                'status' => MatchStatus::Scheduled,
+            ]);
+        }
+
+        $losersRound1Matches = $bracketSize / 4;
+        for ($m = 0; $m < $losersRound1Matches; $m++) {
+            $this->matchRepository->create([
+                'event_games_id' => $eventGamesId,
+                'squad_home_id' => null,
+                'squad_away_id' => null,
+                'round' => 101,
+                'match_order' => $m,
+                'status' => MatchStatus::Scheduled,
+            ]);
+        }
+    }
+
+    /**
+     * Generate Round Robin.
+     */
+    private function generateRoundRobin(int $eventGamesId, array $squadsList): void
+    {
+        $count = count($squadsList);
+        if ($count % 2 !== 0) {
+            $squadsList[] = null;
+            $count++;
+        }
+
+        $rounds = $count - 1;
+        $matchesPerRound = $count / 2;
+
+        foreach ($squadsList as $squadId) {
+            if ($squadId !== null) {
+                Standing::firstOrCreate([
+                    'event_games_id' => $eventGamesId,
+                    'squad_id' => $squadId,
+                ], [
+                    'wins' => 0,
+                    'losses' => 0,
+                    'draws' => 0,
+                    'points' => 0,
+                ]);
+            }
+        }
+
+        for ($round = 1; $round <= $rounds; $round++) {
+            for ($i = 0; $i < $matchesPerRound; $i++) {
+                $home = $squadsList[$i];
+                $away = $squadsList[$count - 1 - $i];
+
+                $winnerId = null;
+                $status = MatchStatus::Scheduled;
+                if ($home !== null && $away === null) {
+                    $winnerId = $home;
+                    $status = MatchStatus::Completed;
+                } elseif ($home === null && $away !== null) {
+                    $winnerId = $away;
+                    $status = MatchStatus::Completed;
+                }
+
+                if ($home !== null || $away !== null) {
+                    $this->matchRepository->create([
+                        'event_games_id' => $eventGamesId,
+                        'squad_home_id' => $home,
+                        'squad_away_id' => $away,
+                        'winner_id' => $winnerId,
+                        'round' => $round,
+                        'match_order' => $i,
+                        'status' => $status,
+                    ]);
+                }
+            }
+            $first = array_shift($squadsList);
+            $last = array_pop($squadsList);
+            array_unshift($squadsList, $last);
+            array_unshift($squadsList, $first);
+        }
+    }
+
+    /**
+     * Generate Swiss.
+     */
+    private function generateSwiss(int $eventGamesId, array $squadsList): void
+    {
+        $count = count($squadsList);
+        if ($count % 2 !== 0) {
+            $squadsList[] = null;
+            $count++;
+        }
+
+        $matchNumber = 0;
+        for ($i = 0; $i < $count; $i += 2) {
+            $home = $squadsList[$i];
+            $away = $squadsList[$i + 1];
+
+            $winnerId = null;
+            $status = MatchStatus::Scheduled;
+            if ($home !== null && $away === null) {
+                $winnerId = $home;
+                $status = MatchStatus::Completed;
+            } elseif ($home === null && $away !== null) {
+                $winnerId = $away;
+                $status = MatchStatus::Completed;
+            }
+
+            $this->matchRepository->create([
+                'event_games_id' => $eventGamesId,
+                'squad_home_id' => $home,
+                'squad_away_id' => $away,
+                'winner_id' => $winnerId,
+                'round' => 1,
+                'match_order' => $matchNumber,
+                'status' => $status,
+            ]);
+            $matchNumber++;
+        }
     }
 
     /**
@@ -155,7 +335,7 @@ class MatchController extends Controller
             abort(404);
         }
 
-        if ($match->eventGame->event->organizer->user_id !== auth()->id()) {
+        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
             abort(403, 'Unauthorized.');
         }
 
@@ -179,8 +359,14 @@ class MatchController extends Controller
             'status' => MatchStatus::Completed,
         ]);
 
-        // Promote winner to next round
-        $this->promoteWinnersToNextRound($match->event_games_id, $match->round);
+        // Update standings if Round Robin
+        $type = $match->eventGame->event->tournament_type->value ?? $match->eventGame->event->tournament_type;
+        if ($type === 'round_robin') {
+            $this->updateRoundRobinStandings($match);
+        } else {
+            // Promote winner to next round for Elimination brackets
+            $this->promoteWinnersToNextRound($match->event_games_id, $match->round);
+        }
 
         // Check if tournament division is fully finished (all matches completed)
         $totalMatches = GameMatch::where('event_games_id', $match->event_games_id)->count();
@@ -279,5 +465,105 @@ class MatchController extends Controller
 
         // Mark event as completed
         $eventGame->event->update(['status' => EventStatus::Completed]);
+    }
+
+    /**
+     * Update match schedule.
+     */
+    public function updateSchedule(Request $request, int $matchId): RedirectResponse
+    {
+        $match = $this->matchRepository->find($matchId);
+
+        if (! $match) {
+            abort(404);
+        }
+
+        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $validated = $request->validate([
+            'scheduled_at' => 'required|date',
+        ]);
+
+        $this->matchRepository->update($matchId, [
+            'scheduled_at' => $validated['scheduled_at'],
+        ]);
+
+        return redirect()->back()->with('success', 'Match schedule updated successfully.');
+    }
+
+    /**
+     * Override/toggle match status.
+     * Guard: changing status from completed back to live/scheduled is super-admin only.
+     */
+    public function toggleMatchStatus(Request $request, int $matchId): RedirectResponse
+    {
+        $match = $this->matchRepository->find($matchId);
+
+        if (! $match) {
+            abort(404);
+        }
+
+        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $validated = $request->validate([
+            'status' => 'required|string|in:scheduled,live,completed,cancelled',
+        ]);
+
+        $newStatus = $validated['status'];
+
+        // Guard: Reverting from completed back to scheduled/live/cancelled is super-admin only
+        if ($match->status->value === 'completed' && $newStatus !== 'completed') {
+            if (auth()->user()->role?->name !== 'super-admin') {
+                return redirect()->back()->with('error', 'Only a Super Admin can revert a completed match.');
+            }
+        }
+
+        $this->matchRepository->update($matchId, [
+            'status' => $newStatus,
+        ]);
+
+        return redirect()->back()->with('success', 'Match status updated successfully.');
+    }
+
+    /**
+     * Private helper to update standings for Round Robin matches.
+     */
+    private function updateRoundRobinStandings($match): void
+    {
+        $homeId = $match->squad_home_id;
+        $awayId = $match->squad_away_id;
+        $winnerId = $match->winner_id;
+
+        if ($homeId) {
+            $standingHome = Standing::firstOrCreate([
+                'event_games_id' => $match->event_games_id,
+                'squad_id' => $homeId,
+            ]);
+
+            if ($winnerId === $homeId) {
+                $standingHome->increment('wins');
+                $standingHome->increment('points', 3);
+            } else {
+                $standingHome->increment('losses');
+            }
+        }
+
+        if ($awayId) {
+            $standingAway = Standing::firstOrCreate([
+                'event_games_id' => $match->event_games_id,
+                'squad_id' => $awayId,
+            ]);
+
+            if ($winnerId === $awayId) {
+                $standingAway->increment('wins');
+                $standingAway->increment('points', 3);
+            } else {
+                $standingAway->increment('losses');
+            }
+        }
     }
 }

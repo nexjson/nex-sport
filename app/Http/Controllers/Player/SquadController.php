@@ -107,7 +107,7 @@ class SquadController extends Controller
             abort(404);
         }
 
-        if ($squad->team->user_id !== auth()->id()) {
+        if ($squad->team->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -133,7 +133,7 @@ class SquadController extends Controller
             abort(404);
         }
 
-        if ($squad->team->user_id !== auth()->id()) {
+        if ($squad->team->user_id !== auth()->id() && auth()->user()->role?->name !== 'super-admin') {
             abort(403, 'Unauthorized action.');
         }
 

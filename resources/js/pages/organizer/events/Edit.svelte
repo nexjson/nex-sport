@@ -12,13 +12,15 @@
     import AppHead from '@/components/AppHead.svelte';
     import { router } from '@inertiajs/svelte';
 
-    let { event = {}, games = [], flash = {} }: { event: any; games: any[]; flash: any } = $props();
+    let { event = {}, games = [], flash = {}, auth = {} }: { event: any; games: any[]; flash: any; auth: any } = $props();
 
     // Event details
     let name = $state(event.name || '');
     let description = $state(event.description || '');
-    let start_date = $state(event.start_date || '');
-    let end_date = $state(event.end_date || '');
+    let location = $state(event.location || '');
+    let tournament_type = $state(event.tournament_type || 'single_elimination');
+    let start_date = $state(event.start_date ? event.start_date.substring(0, 10) : '');
+    let end_date = $state(event.end_date ? event.end_date.substring(0, 10) : '');
 
     // Modals toggle
     let showGameModal = $state(false);
@@ -40,8 +42,22 @@
             name,
             description,
             start_date,
-            end_date
+            end_date,
+            location,
+            tournament_type
         });
+    }
+
+    function toggleRegistration() {
+        if (confirm('Are you sure you want to toggle registration?')) {
+            router.post(`/organizer/events/${event.id}/toggle-registration`);
+        }
+    }
+
+    function overrideStatus(status: string) {
+        if (confirm(`Are you sure you want to change status to ${status}?`)) {
+            router.post(`/organizer/events/${event.id}/status`, { status });
+        }
     }
 
     function addGame() {
@@ -123,6 +139,21 @@
                 <div>
                     <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1" for="eDesc">Description</label>
                     <textarea bind:value={description} id="eDesc" rows="3" class="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"></textarea>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1" for="eLocation">Location</label>
+                        <input bind:value={location} type="text" id="eLocation" placeholder="E.g., Jakarta, Online" class="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1" for="eType">Tournament Type</label>
+                        <select bind:value={tournament_type} id="eType" required class="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white">
+                            <option value="single_elimination">Single Elimination</option>
+                            <option value="double_elimination">Double Elimination</option>
+                            <option value="round_robin">Round Robin</option>
+                            <option value="swiss">Swiss</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="grid gap-4 sm:grid-cols-2">
                     <div>
@@ -216,16 +247,39 @@
 
         <!-- Right Col: Sponsors & Deposit Publication -->
         <div class="space-y-6">
-            <!-- Publishing Payment -->
-            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                <h3 class="text-md font-bold text-slate-900 dark:text-white mb-2">Publish Tournament</h3>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">To publish your tournament and open registrations, please pay the publishing deposit (escrow prizepool + platform fees).</p>
+            <!-- Publishing Payment & Control Panel -->
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950 space-y-4">
+                <h3 class="text-md font-bold text-slate-900 dark:text-white mb-2">Tournament Control</h3>
+                
                 {#if event.status === 'draft'}
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">To publish your tournament and open registrations, please pay the publishing deposit (escrow prizepool + platform fees).</p>
                     <button onclick={payDeposit} class="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors">Publish & Pay Deposit</button>
                 {:else}
-                    <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/20 text-center">
-                        <span class="text-sm font-bold text-emerald-750 dark:text-emerald-400">Tournament Published</span>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Registrations are active.</p>
+                    <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/20 text-center mb-2">
+                        <span class="text-sm font-bold text-emerald-750 dark:text-emerald-400">Status: <span class="capitalize">{event.status}</span></span>
+                    </div>
+                {/if}
+
+                <!-- Manual Registration Toggle (for Organizer & Admin) -->
+                {#if event.status === 'registration' || event.status === 'ongoing'}
+                    <button onclick={toggleRegistration} class="w-full rounded-xl bg-slate-800 py-2 text-xs font-semibold text-white hover:bg-slate-700 transition-colors">
+                        {event.status === 'registration' ? '🔴 Close Registration (Start Event)' : '🟢 Open Registration'}
+                    </button>
+                {/if}
+
+                <!-- Status Override (Admins Only) -->
+                {#if ['admin', 'super-admin'].includes(auth.user?.role)}
+                    <div class="pt-4 border-t border-slate-105 dark:border-slate-900 space-y-2">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Admin Override</h4>
+                        <div class="grid grid-cols-2 gap-2 text-[10px]">
+                            {#each ['draft', 'registration', 'ongoing', 'completed', 'cancelled'] as st}
+                                {#if event.status !== st}
+                                    <button onclick={() => overrideStatus(st)} class="bg-indigo-50 text-indigo-750 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 dark:hover:bg-indigo-900/40 py-1.5 px-2 rounded-lg font-semibold capitalize text-center">
+                                        To {st.replace('_', ' ')}
+                                    </button>
+                                {/if}
+                            {/each}
+                        </div>
                     </div>
                 {/if}
             </div>

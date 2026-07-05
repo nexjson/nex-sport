@@ -63,13 +63,14 @@ class EventController extends Controller
             'description' => 'nullable|string',
             'logo' => 'nullable|string',
             'banner' => 'nullable|string',
+            'location' => 'nullable|string|max:255',
+            'tournament_type' => 'required|string|in:single_elimination,double_elimination,round_robin,swiss',
             'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after_or_equal:start_date',
         ]);
 
         $validated['organizer_id'] = $organizer->id;
         $validated['status'] = EventStatus::Draft;
-        $validated['tournament_type'] = 'single_elimination';
         $validated['registration_start'] = now();
         $startDate = Carbon::parse($validated['start_date']);
         $validated['registration_end'] = $startDate->isToday() ? $startDate : $startDate->copy()->subDay();
@@ -90,7 +91,7 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id()) {
+        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
             abort(403, 'Unauthorized.');
         }
 
@@ -111,7 +112,7 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id()) {
+        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
             abort(403, 'Unauthorized.');
         }
 
@@ -120,6 +121,8 @@ class EventController extends Controller
             'description' => 'nullable|string',
             'logo' => 'nullable|string',
             'banner' => 'nullable|string',
+            'location' => 'nullable|string|max:255',
+            'tournament_type' => 'required|string|in:single_elimination,double_elimination,round_robin,swiss',
             'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after_or_equal:start_date',
         ]);
@@ -264,5 +267,57 @@ class EventController extends Controller
         ]);
 
         return redirect()->back()->with('success', 'Deposit paid successfully! Tournament status updated to Registration.');
+    }
+
+    /**
+     * Toggle manual registration status.
+     */
+    public function toggleRegistration(Request $request, int $id): RedirectResponse
+    {
+        $event = $this->eventRepository->find($id);
+
+        if (! $event) {
+            abort(404);
+        }
+
+        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        if ($event->status === EventStatus::Registration) {
+            $this->eventRepository->update($id, ['status' => EventStatus::Ongoing]);
+            $msg = 'Registration closed manually. Tournament status updated to Ongoing.';
+        } elseif ($event->status === EventStatus::Ongoing) {
+            $this->eventRepository->update($id, ['status' => EventStatus::Registration]);
+            $msg = 'Registration opened manually. Tournament status updated to Registration.';
+        } else {
+            return redirect()->back()->with('error', 'Registration can only be toggled when the status is Registration or Ongoing.');
+        }
+
+        return redirect()->back()->with('success', $msg);
+    }
+
+    /**
+     * Override tournament status (Admin/Super-Admin only).
+     */
+    public function updateStatus(Request $request, int $id): RedirectResponse
+    {
+        if (! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $event = $this->eventRepository->find($id);
+
+        if (! $event) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'status' => 'required|string|in:draft,waiting_payment,waiting_verification,registration,ongoing,completed,cancelled',
+        ]);
+
+        $this->eventRepository->update($id, ['status' => $validated['status']]);
+
+        return redirect()->back()->with('success', 'Tournament status overridden successfully to '.$validated['status'].'.');
     }
 }

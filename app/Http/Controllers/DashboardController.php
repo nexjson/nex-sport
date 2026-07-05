@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EventPaymentStatus;
 use App\Models\EventPayment;
 use App\Models\Game;
 use App\Models\Organizer;
@@ -12,6 +13,7 @@ use App\Repositories\Contracts\RegistrationRepositoryInterface;
 use App\Repositories\Contracts\RewardClaimRepositoryInterface;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -36,13 +38,13 @@ class DashboardController extends Controller
         $data = [];
 
         if ($role === 'super-admin') {
-            $data = $this->getSuperAdminData();
+            $data = Cache::remember('dashboard_super_admin', 600, fn () => $this->getSuperAdminData());
         } elseif ($role === 'admin') {
-            $data = $this->getAdminData();
+            $data = Cache::remember('dashboard_admin', 600, fn () => $this->getAdminData());
         } elseif ($role === 'organizer') {
-            $data = $this->getOrganizerData($user->id);
+            $data = Cache::remember('dashboard_organizer_'.$user->id, 300, fn () => $this->getOrganizerData($user->id));
         } else {
-            $data = $this->getPlayerData($user->id);
+            $data = Cache::remember('dashboard_player_'.$user->id, 120, fn () => $this->getPlayerData($user->id));
         }
 
         return Inertia::render('Dashboard', $data);
@@ -56,7 +58,7 @@ class DashboardController extends Controller
         $users = $this->userRepository->all();
         $events = $this->eventRepository->all();
 
-        $totalRevenue = EventPayment::where('payment_status', 'approved')->sum('amount');
+        $totalRevenue = EventPayment::where('status', EventPaymentStatus::Approved)->sum('amount');
 
         // Count user distribution
         $playersCount = $users->filter(fn ($u) => $u->role?->name === 'player')->count();
@@ -84,8 +86,8 @@ class DashboardController extends Controller
         $events = $this->eventRepository->all();
         $activeEventsCount = $events->filter(fn ($e) => in_array($e->status->value, ['registration', 'ongoing']))->count();
 
-        $pendingPayments = EventPayment::where('payment_status', 'pending')->with('event.organizer')->get();
-        $pendingRegsCount = $this->registrationRepository->all()->filter(fn ($r) => $r->status === 'pending' && $r->payment_status === 'completed')->count();
+        $pendingPayments = EventPayment::where('status', EventPaymentStatus::Pending)->with('event.organizer')->get();
+        $pendingRegsCount = $this->registrationRepository->all()->filter(fn ($r) => $r->status->value === 'pending' && $r->payment_status->value === 'paid')->count();
 
         return [
             'stats' => [
