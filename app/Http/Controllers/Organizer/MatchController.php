@@ -5,23 +5,29 @@ namespace App\Http\Controllers\Organizer;
 use App\Enums\EventStatus;
 use App\Enums\MatchStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\UpdateScheduleRequest;
+use App\Http\Requests\UpdateScoreRequest;
 use App\Models\EventGame;
+use App\Models\Game;
 use App\Models\GameMatch;
-use App\Models\Registration;
 use App\Models\Reward;
-use App\Models\RewardClaim;
 use App\Models\Squad;
 use App\Models\Standing;
 use App\Repositories\Contracts\MatchRepositoryInterface;
+use App\Repositories\Contracts\RegistrationRepositoryInterface;
+use App\Repositories\Contracts\RewardClaimRepositoryInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class MatchController extends Controller
 {
     public function __construct(
-        protected MatchRepositoryInterface $matchRepository
+        protected MatchRepositoryInterface $matchRepository,
+        protected RegistrationRepositoryInterface $registrationRepository,
+        protected RewardClaimRepositoryInterface $claimRepository
     ) {}
 
     /**
@@ -34,6 +40,8 @@ class MatchController extends Controller
         if (! $eventGame) {
             abort(404);
         }
+
+        Gate::authorize('viewAny', GameMatch::class);
 
         $matches = $this->matchRepository->getByEventGame($eventGamesId);
         $standings = Standing::where('event_games_id', $eventGamesId)->with('squad.team')->orderByDesc('points')->get();
@@ -56,10 +64,11 @@ class MatchController extends Controller
             abort(404);
         }
 
+        Gate::authorize('generate', [GameMatch::class, $eventGame]);
+
         // Get approved squad registrations
-        $approvedRegs = Registration::where('event_games_id', $eventGamesId)
-            ->where('status', 'approved')
-            ->get();
+        $approvedRegs = $this->registrationRepository->getByEventGame($eventGamesId)
+            ->where('status', 'approved');
 
         $count = $approvedRegs->count();
 
@@ -68,7 +77,7 @@ class MatchController extends Controller
         }
 
         // Check if bracket already generated
-        if (GameMatch::where('event_games_id', $eventGamesId)->exists()) {
+        if ($this->matchRepository->getByEventGame($eventGamesId)->isNotEmpty()) {
             return redirect()->back()->with('error', 'Bracket has already been generated.');
         }
 
@@ -322,27 +331,21 @@ class MatchController extends Controller
     /**
      * Input match score and update standings.
      */
-    public function updateScore(Request $request, int $matchId): RedirectResponse
+    public function updateScore(UpdateScoreRequest $request, int $matchId): RedirectResponse
     {
-        $validated = $request->validate([
-            'squad_home_score' => 'required|integer|min:0',
-            'squad_away_score' => 'required|integer|min:0',
-        ]);
-
         $match = $this->matchRepository->find($matchId);
 
         if (! $match) {
             abort(404);
         }
 
-        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('updateScore', $match);
 
         if ($match->status === MatchStatus::Completed) {
             return redirect()->back()->with('error', 'Match is already completed.');
         }
 
+        $validated = $request->validated();
         $homeScore = $validated['squad_home_score'];
         $awayScore = $validated['squad_away_score'];
 
@@ -369,8 +372,8 @@ class MatchController extends Controller
         }
 
         // Check if tournament division is fully finished (all matches completed)
-        $totalMatches = GameMatch::where('event_games_id', $match->event_games_id)->count();
-        $completedMatches = GameMatch::where('event_games_id', $match->event_games_id)->where('status', MatchStatus::Completed)->count();
+        $totalMatches = $this->matchRepository->getByEventGame($match->event_games_id)->count();
+        $completedMatches = $this->matchRepository->getByEventGame($match->event_games_id)->where('status', MatchStatus::Completed)->count();
 
         if ($totalMatches === $completedMatches) {
             $this->finalizeTournamentDivision($match->event_games_id);
@@ -384,9 +387,8 @@ class MatchController extends Controller
      */
     private function promoteWinnersToNextRound(int $eventGamesId, int $currentRound): void
     {
-        $matches = GameMatch::where('event_games_id', $eventGamesId)
-            ->where('round', $currentRound)
-            ->get();
+        $matches = $this->matchRepository->getByEventGame($eventGamesId)
+            ->where('round', $currentRound);
 
         foreach ($matches as $match) {
             if ($match->status === MatchStatus::Completed && $match->winner_id !== null) {
@@ -395,7 +397,7 @@ class MatchController extends Controller
                 $nextMatchNum = floor($match->match_order / 2);
                 $isHome = ($match->match_order % 2) === 0;
 
-                $nextMatch = GameMatch::where('event_games_id', $eventGamesId)
+                $nextMatch = $this->matchRepository->getByEventGame($eventGamesId)
                     ->where('round', $nextRound)
                     ->where('match_order', $nextMatchNum)
                     ->first();
@@ -406,8 +408,6 @@ class MatchController extends Controller
                     } else {
                         $nextMatch->update(['squad_away_id' => $match->winner_id]);
                     }
-
-                    // Auto-resolve if the next match now has a BYE (squad home exists, squad away is null, etc. but wait, let's keep it simple)
                 }
             }
         }
@@ -424,8 +424,8 @@ class MatchController extends Controller
         }
 
         // Get final match
-        $finalMatch = GameMatch::where('event_games_id', $eventGamesId)
-            ->orderByDesc('round')
+        $finalMatch = $this->matchRepository->getByEventGame($eventGamesId)
+            ->sortByDesc('round')
             ->first();
 
         if (! $finalMatch || ! $finalMatch->winner_id) {
@@ -453,7 +453,7 @@ class MatchController extends Controller
             }
 
             if ($targetUserId) {
-                RewardClaim::create([
+                $this->claimRepository->create([
                     'reward_id' => $reward->id,
                     'amount' => $reward->prize_amount ?: 0,
                     'squad_id' => $targetSquadId,
@@ -470,7 +470,7 @@ class MatchController extends Controller
     /**
      * Update match schedule.
      */
-    public function updateSchedule(Request $request, int $matchId): RedirectResponse
+    public function updateSchedule(UpdateScheduleRequest $request, int $matchId): RedirectResponse
     {
         $match = $this->matchRepository->find($matchId);
 
@@ -478,16 +478,10 @@ class MatchController extends Controller
             abort(404);
         }
 
-        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
-
-        $validated = $request->validate([
-            'scheduled_at' => 'required|date',
-        ]);
+        Gate::authorize('updateSchedule', $match);
 
         $this->matchRepository->update($matchId, [
-            'scheduled_at' => $validated['scheduled_at'],
+            'scheduled_at' => $request->validated()['scheduled_at'],
         ]);
 
         return redirect()->back()->with('success', 'Match schedule updated successfully.');
@@ -505,9 +499,7 @@ class MatchController extends Controller
             abort(404);
         }
 
-        if ($match->eventGame->event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('toggleMatchStatus', $match);
 
         $validated = $request->validate([
             'status' => 'required|string|in:scheduled,live,completed,cancelled',

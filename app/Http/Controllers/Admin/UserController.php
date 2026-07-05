@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreUserRequest;
+use App\Http\Requests\UpdateUserRequest;
 use App\Models\Role;
 use App\Models\User;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -23,13 +25,8 @@ class UserController extends Controller
      */
     public function index(): Response
     {
-        $users = User::with('role')->get(); // Using relation loading is fine, but data fetched via Eloquent model. Wait! Rule: "Controller tidak boleh memanggil Eloquent query secara langsung untuk entity yang punya repository".
+        Gate::authorize('viewAny', User::class);
 
-        // Ah! To satisfy the rule, let's fetch users via the repository:
-        // Wait, does userRepository have all()? Yes. Let's update UserRepository's all() or find() to include the role relation so that we don't call User:: directly.
-        // Let's call $this->userRepository->all();
-        // Since all() in our Eloquent\UserRepository returns User::all() (and we can modify it to load role by default, or just let all() return all users), let's make sure it returns them with roles.
-        // Let's implement index using the repository.
         return Inertia::render('admin/users/Index', [
             'users' => $this->userRepository->all()->map(fn ($user) => [
                 'id' => $user->id,
@@ -48,17 +45,11 @@ class UserController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreUserRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'username' => 'required|string|alpha_dash|max:255|unique:users',
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'phone' => 'required|string|max:20',
-            'password' => 'required|string|min:8',
-            'role_id' => 'required|exists:roles,id',
-        ]);
+        Gate::authorize('create', User::class);
 
+        $validated = $request->validated();
         $validated['password'] = Hash::make($validated['password']);
         $validated['status'] = true;
 
@@ -70,21 +61,22 @@ class UserController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, int $id): RedirectResponse
+    public function update(UpdateUserRequest $request, int $id): RedirectResponse
     {
-        $validated = $request->validate([
-            'username' => 'required|string|alpha_dash|max:255|unique:users,username,'.$id,
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users,email,'.$id,
-            'phone' => 'required|string|max:20',
-            'role_id' => 'required|exists:roles,id',
-        ]);
+        $user = $this->userRepository->find($id);
+
+        if (! $user) {
+            abort(404);
+        }
+
+        Gate::authorize('update', $user);
+
+        $validated = $request->validated();
 
         if ($request->filled('password')) {
-            $request->validate([
-                'password' => 'string|min:8',
-            ]);
             $validated['password'] = Hash::make($request->password);
+        } else {
+            unset($validated['password']);
         }
 
         $this->userRepository->update($id, $validated);
@@ -102,6 +94,8 @@ class UserController extends Controller
         if (! $user) {
             abort(404);
         }
+
+        Gate::authorize('delete', $user);
 
         // Super Admin cannot delete their own account
         if (auth()->id() === $id) {
@@ -134,6 +128,8 @@ class UserController extends Controller
         if (! $user) {
             abort(404);
         }
+
+        Gate::authorize('toggleStatus', $user);
 
         if (auth()->id() === $id) {
             return redirect()->route('admin.users.index')->with('error', 'You cannot ban yourself.');

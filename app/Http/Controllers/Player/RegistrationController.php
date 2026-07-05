@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Player;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreRegistrationRequest;
 use App\Models\EventGame;
 use App\Models\Registration;
 use App\Models\Squad;
 use App\Repositories\Contracts\EventRepositoryInterface;
 use App\Repositories\Contracts\RegistrationRepositoryInterface;
+use App\Repositories\Contracts\SquadRepositoryInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,7 +20,8 @@ class RegistrationController extends Controller
 {
     public function __construct(
         protected RegistrationRepositoryInterface $registrationRepository,
-        protected EventRepositoryInterface $eventRepository
+        protected EventRepositoryInterface $eventRepository,
+        protected SquadRepositoryInterface $squadRepository
     ) {}
 
     /**
@@ -25,10 +29,14 @@ class RegistrationController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', Registration::class);
+
         $userId = auth()->id();
 
         // Get player's owned squads to display as options for registration
-        $mySquads = Squad::whereHas('team', fn ($q) => $q->where('user_id', $userId))->get();
+        $mySquads = $this->squadRepository->all()->filter(function ($squad) use ($userId) {
+            return $squad->team->user_id === $userId;
+        })->values();
 
         // Fetch all active registrations made by player's squads
         $registrations = $this->registrationRepository->all()->filter(function ($reg) use ($userId) {
@@ -48,14 +56,13 @@ class RegistrationController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreRegistrationRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'squad_id' => 'required|exists:squads,id',
-            'event_games_id' => 'required|exists:event_games,id',
-        ]);
+        Gate::authorize('create', Registration::class);
 
-        $squad = Squad::with('team')->find($validated['squad_id']);
+        $validated = $request->validated();
+
+        $squad = $this->squadRepository->find($validated['squad_id']);
         $eventGame = EventGame::with('event')->find($validated['event_games_id']);
 
         if (! $squad || ! $eventGame) {
@@ -73,17 +80,17 @@ class RegistrationController extends Controller
         }
 
         // Duplicate registration check
-        $exists = Registration::where('squad_id', $squad->id)
+        $exists = $this->registrationRepository->getBySquad($squad->id)
             ->where('event_games_id', $eventGame->id)
             ->whereIn('status', ['pending', 'approved'])
-            ->exists();
+            ->isNotEmpty();
 
         if ($exists) {
             return redirect()->back()->with('error', 'This squad is already registered for this tournament.');
         }
 
         // Quota check
-        $approvedCount = Registration::where('event_games_id', $eventGame->id)
+        $approvedCount = $this->registrationRepository->getByEventGame($eventGame->id)
             ->where('status', 'approved')
             ->count();
 
@@ -101,6 +108,8 @@ class RegistrationController extends Controller
             'event_games_id' => $eventGame->id,
             'payment_status' => $totalFee > 0 ? 'pending' : 'completed',
             'payment_method' => $totalFee > 0 ? 'qris' : 'free',
+            'ticket_price' => $ticketPrice,
+            'admin_fee' => $adminFee,
             'amount_paid' => $totalFee,
             'status' => 'pending',
             'registered_at' => now(),
@@ -124,9 +133,7 @@ class RegistrationController extends Controller
             abort(404);
         }
 
-        if ($registration->squad->team->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('update', $registration);
 
         if ($registration->payment_status === 'completed') {
             return redirect()->back()->with('error', 'Ticket is already paid.');
@@ -151,9 +158,7 @@ class RegistrationController extends Controller
             abort(404);
         }
 
-        if ($registration->squad->team->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('cancel', $registration);
 
         if ($registration->status === 'approved') {
             return redirect()->back()->with('error', 'Cannot cancel an already approved registration.');
@@ -182,14 +187,11 @@ class RegistrationController extends Controller
             abort(404);
         }
 
-        // Authenticate organizer owner
-        if ($registration->eventGame->event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('processRegistration', $registration);
 
         if ($validated['action'] === 'approved') {
             // Check quota again
-            $approvedCount = Registration::where('event_games_id', $registration->event_games_id)
+            $approvedCount = $this->registrationRepository->getByEventGame($registration->event_games_id)
                 ->where('status', 'approved')
                 ->count();
 

@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Organizer;
 
 use App\Enums\EventStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreEventGameRequest;
+use App\Http\Requests\StoreEventRequest;
+use App\Http\Requests\UpdateEventRequest;
+use App\Models\Event;
 use App\Models\EventGame;
 use App\Models\EventPayment;
 use App\Models\Game;
@@ -12,6 +16,7 @@ use App\Repositories\Contracts\EventRepositoryInterface;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -26,6 +31,8 @@ class EventController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', Event::class);
+
         $organizer = Organizer::where('user_id', auth()->id())->first();
 
         $events = $organizer
@@ -42,6 +49,8 @@ class EventController extends Controller
      */
     public function create(): Response
     {
+        Gate::authorize('create', Event::class);
+
         return Inertia::render('organizer/events/Create', [
             'games' => Game::where('status', true)->get(),
         ]);
@@ -50,25 +59,17 @@ class EventController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreEventRequest $request): RedirectResponse
     {
+        Gate::authorize('create', Event::class);
+
         $organizer = Organizer::where('user_id', auth()->id())->first();
 
         if (! $organizer) {
             return redirect()->back()->with('error', 'You must have an Organizer Profile to create events.');
         }
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:events',
-            'description' => 'nullable|string',
-            'logo' => 'nullable|string',
-            'banner' => 'nullable|string',
-            'location' => 'nullable|string|max:255',
-            'tournament_type' => 'required|string|in:single_elimination,double_elimination,round_robin,swiss',
-            'start_date' => 'required|date|after_or_equal:today',
-            'end_date' => 'required|date|after_or_equal:start_date',
-        ]);
-
+        $validated = $request->validated();
         $validated['organizer_id'] = $organizer->id;
         $validated['status'] = EventStatus::Draft;
         $validated['registration_start'] = now();
@@ -91,9 +92,7 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('update', $event);
 
         return Inertia::render('organizer/events/Edit', [
             'event' => $event,
@@ -104,7 +103,7 @@ class EventController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, int $id): RedirectResponse
+    public function update(UpdateEventRequest $request, int $id): RedirectResponse
     {
         $event = $this->eventRepository->find($id);
 
@@ -112,22 +111,9 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('update', $event);
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:events,name,'.$id,
-            'description' => 'nullable|string',
-            'logo' => 'nullable|string',
-            'banner' => 'nullable|string',
-            'location' => 'nullable|string|max:255',
-            'tournament_type' => 'required|string|in:single_elimination,double_elimination,round_robin,swiss',
-            'start_date' => 'required|date|after_or_equal:today',
-            'end_date' => 'required|date|after_or_equal:start_date',
-        ]);
-
-        $this->eventRepository->update($id, $validated);
+        $this->eventRepository->update($id, $request->validated());
 
         return redirect()->back()->with('success', 'Event details updated.');
     }
@@ -143,9 +129,7 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('delete', $event);
 
         // Guard: only draft events can be deleted
         if ($event->status !== EventStatus::Draft) {
@@ -160,19 +144,17 @@ class EventController extends Controller
     /**
      * Add event game division.
      */
-    public function storeGame(Request $request, int $eventId): RedirectResponse
+    public function storeGame(StoreEventGameRequest $request, int $eventId): RedirectResponse
     {
         $event = $this->eventRepository->find($eventId);
-        if ($event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
+
+        if (! $event) {
+            abort(404);
         }
 
-        $validated = $request->validate([
-            'game_id' => 'required|exists:games,id',
-            'max_squads' => 'required|integer|min:2',
-            'ticket_price' => 'required|integer|min:0',
-            'admin_ticket_fee' => 'required|integer|min:0',
-        ]);
+        Gate::authorize('storeGame', $event);
+
+        $validated = $request->validated();
 
         // Duplicate check
         $exists = $event->eventGames()->where('game_id', $validated['game_id'])->exists();
@@ -191,9 +173,12 @@ class EventController extends Controller
     public function destroyGame(int $eventId, int $eventGamesId): RedirectResponse
     {
         $event = $this->eventRepository->find($eventId);
-        if ($event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
+
+        if (! $event) {
+            abort(404);
         }
+
+        Gate::authorize('destroyGame', $event);
 
         $eventGame = EventGame::find($eventGamesId);
         if ($eventGame->registrations()->exists()) {
@@ -211,9 +196,12 @@ class EventController extends Controller
     public function storeSponsor(Request $request, int $eventId): RedirectResponse
     {
         $event = $this->eventRepository->find($eventId);
-        if ($event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
+
+        if (! $event) {
+            abort(404);
         }
+
+        Gate::authorize('storeSponsor', $event);
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -232,9 +220,12 @@ class EventController extends Controller
     public function payDeposit(Request $request, int $eventId): RedirectResponse
     {
         $event = $this->eventRepository->find($eventId);
-        if ($event->organizer->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
+
+        if (! $event) {
+            abort(404);
         }
+
+        Gate::authorize('payDeposit', $event);
 
         if ($event->eventGames()->count() === 0) {
             return redirect()->back()->with('error', 'Add at least one game division before publishing.');
@@ -247,7 +238,7 @@ class EventController extends Controller
         $totalAmount = $totalRewards + $serviceFee;
 
         // Check if there is already an approved payment
-        if ($event->eventPayments()->where('payment_status', 'approved')->exists()) {
+        if ($event->eventPayments()->where('status', 'approved')->exists()) {
             return redirect()->back()->with('error', 'Event deposit has already been paid and verified.');
         }
 
@@ -256,7 +247,7 @@ class EventController extends Controller
             'event_id' => $event->id,
             'amount' => $totalAmount,
             'payment_method' => 'qris',
-            'payment_status' => 'approved', // Auto-approved for mock purposes!
+            'status' => 'approved', // Auto-approved for mock purposes!
             'payment_receipt' => 'MOCK-RECEIPT-'.time(),
             'verified_at' => now(),
         ]);
@@ -280,9 +271,7 @@ class EventController extends Controller
             abort(404);
         }
 
-        if ($event->organizer->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('toggleRegistration', $event);
 
         if ($event->status === EventStatus::Registration) {
             $this->eventRepository->update($id, ['status' => EventStatus::Ongoing]);

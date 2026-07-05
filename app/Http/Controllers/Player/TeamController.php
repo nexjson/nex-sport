@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Player;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreTeamRequest;
+use App\Http\Requests\UpdateTeamRequest;
 use App\Models\Team;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -16,6 +18,8 @@ class TeamController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', Team::class);
+
         return Inertia::render('player/teams/Index', [
             'teams' => Team::where('user_id', auth()->id())->withCount('squads')->get(),
         ]);
@@ -24,15 +28,11 @@ class TeamController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreTeamRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:teams',
-            'short_name' => 'required|string|max:50',
-            'logo' => 'nullable|string',
-            'description' => 'nullable|string',
-        ]);
+        Gate::authorize('create', Team::class);
 
+        $validated = $request->validated();
         $validated['user_id'] = auth()->id();
         $validated['status'] = true;
 
@@ -44,20 +44,11 @@ class TeamController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Team $team): RedirectResponse
+    public function update(UpdateTeamRequest $request, Team $team): RedirectResponse
     {
-        if ($team->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized action.');
-        }
+        Gate::authorize('update', $team);
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:teams,name,'.$team->id,
-            'short_name' => 'required|string|max:50',
-            'logo' => 'nullable|string',
-            'description' => 'nullable|string',
-        ]);
-
-        $team->update($validated);
+        $team->update($request->validated());
 
         return redirect()->route('player.teams.index')->with('success', 'Team updated successfully.');
     }
@@ -67,9 +58,7 @@ class TeamController extends Controller
      */
     public function destroy(Team $team): RedirectResponse
     {
-        if ($team->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized action.');
-        }
+        Gate::authorize('delete', $team);
 
         // Guard: check if team has active squads
         if ($team->squads()->exists()) {

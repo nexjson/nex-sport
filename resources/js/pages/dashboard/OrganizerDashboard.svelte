@@ -1,5 +1,9 @@
 <script lang="ts">
-    // Organizer Dashboard Component
+    import { router } from '@inertiajs/svelte';
+
+    function createTournament() {
+        router.visit('/organizer/events/create');
+    }
 </script>
 
 <div class="space-y-6">
@@ -73,7 +77,7 @@
     <div class="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-lg font-bold text-slate-900 dark:text-white">My Tournaments List</h3>
-            <button class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors">Create Tournament</button>
+            <button onclick={createTournament} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors">Create Tournament</button>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">

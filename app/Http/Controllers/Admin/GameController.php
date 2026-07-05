@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreGameRequest;
+use App\Http\Requests\UpdateGameRequest;
 use App\Models\Game;
 use App\Models\GameRole;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,6 +20,8 @@ class GameController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', Game::class);
+
         return Inertia::render('admin/games/Index', [
             'games' => Game::with('roles')->get(),
         ]);
@@ -25,15 +30,11 @@ class GameController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreGameRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:games',
-            'category' => 'required|string|max:100', // e.g. esports, sports
-            'status' => 'required|boolean',
-        ]);
+        Gate::authorize('create', Game::class);
 
-        Game::create($validated);
+        Game::create($request->validated());
 
         return redirect()->route('admin.games.index')->with('success', 'Game created successfully.');
     }
@@ -41,15 +42,11 @@ class GameController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Game $game): RedirectResponse
+    public function update(UpdateGameRequest $request, Game $game): RedirectResponse
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:games,name,'.$game->id,
-            'category' => 'required|string|max:100',
-            'status' => 'required|boolean',
-        ]);
+        Gate::authorize('update', $game);
 
-        $game->update($validated);
+        $game->update($request->validated());
 
         return redirect()->route('admin.games.index')->with('success', 'Game updated successfully.');
     }
@@ -59,6 +56,8 @@ class GameController extends Controller
      */
     public function destroy(Game $game): RedirectResponse
     {
+        Gate::authorize('delete', $game);
+
         // Guard: check if game is used in event_games
         if ($game->eventGames()->exists()) {
             return redirect()->route('admin.games.index')->with('error', 'Cannot delete a game that is currently used in events.');
@@ -74,6 +73,8 @@ class GameController extends Controller
      */
     public function storeRole(Request $request, Game $game): RedirectResponse
     {
+        Gate::authorize('storeRole', $game);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'status' => 'required|boolean',
@@ -95,6 +96,8 @@ class GameController extends Controller
      */
     public function destroyRole(GameRole $gameRole): RedirectResponse
     {
+        Gate::authorize('destroyRole', $gameRole->game);
+
         // Check if players are assigned to this role
         if ($gameRole->players()->exists()) {
             return redirect()->route('admin.games.index')->with('error', 'Cannot delete a role that is assigned to players.');

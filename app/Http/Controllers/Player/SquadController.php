@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Player;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreSquadRequest;
+use App\Http\Requests\UpdateSquadRequest;
 use App\Models\Game;
 use App\Models\Player;
+use App\Models\Squad;
 use App\Models\SquadRequest;
 use App\Models\Team;
 use App\Models\TransferHistory;
 use App\Repositories\Contracts\SquadRepositoryInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,6 +29,8 @@ class SquadController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', Squad::class);
+
         $userId = auth()->id();
 
         // Squads managed by user (via owned teams)
@@ -74,15 +80,11 @@ class SquadController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(StoreSquadRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'team_id' => 'required|exists:teams,id',
-            'game_id' => 'required|exists:games,id',
-            'name' => 'required|string|max:255|unique:squads',
-            'logo' => 'nullable|string',
-            'description' => 'nullable|string',
-        ]);
+        Gate::authorize('create', Squad::class);
+
+        $validated = $request->validated();
 
         $team = Team::find($validated['team_id']);
         if ($team->user_id !== auth()->id()) {
@@ -99,7 +101,7 @@ class SquadController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, int $id): RedirectResponse
+    public function update(UpdateSquadRequest $request, int $id): RedirectResponse
     {
         $squad = $this->squadRepository->find($id);
 
@@ -107,17 +109,9 @@ class SquadController extends Controller
             abort(404);
         }
 
-        if ($squad->team->user_id !== auth()->id() && ! in_array(auth()->user()->role?->name, ['admin', 'super-admin'])) {
-            abort(403, 'Unauthorized action.');
-        }
+        Gate::authorize('update', $squad);
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:squads,name,'.$id,
-            'logo' => 'nullable|string',
-            'description' => 'nullable|string',
-        ]);
-
-        $this->squadRepository->update($id, $validated);
+        $this->squadRepository->update($id, $request->validated());
 
         return redirect()->route('player.squads.index')->with('success', 'Squad division updated successfully.');
     }
@@ -133,9 +127,7 @@ class SquadController extends Controller
             abort(404);
         }
 
-        if ($squad->team->user_id !== auth()->id() && auth()->user()->role?->name !== 'super-admin') {
-            abort(403, 'Unauthorized action.');
-        }
+        Gate::authorize('delete', $squad);
 
         // Release players & log transfers
         foreach ($squad->players as $player) {
@@ -284,9 +276,7 @@ class SquadController extends Controller
             abort(404);
         }
 
-        if ($squad->team->user_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('releasePlayer', $squad);
 
         if ($player->squad_id !== $squad->id) {
             return redirect()->back()->with('error', 'Player is not in this squad.');

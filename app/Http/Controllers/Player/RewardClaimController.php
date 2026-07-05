@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Player;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ClaimRewardRequest;
+use App\Models\RewardClaim;
 use App\Repositories\Contracts\RewardClaimRepositoryInterface;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -20,6 +22,8 @@ class RewardClaimController extends Controller
      */
     public function index(): Response
     {
+        Gate::authorize('viewAny', RewardClaim::class);
+
         $userId = auth()->id();
         $claims = $this->claimRepository->getByClaimer($userId);
 
@@ -31,7 +35,7 @@ class RewardClaimController extends Controller
     /**
      * Submit bank details and claim payout.
      */
-    public function claim(Request $request, int $id): RedirectResponse
+    public function claim(ClaimRewardRequest $request, int $id): RedirectResponse
     {
         $claim = $this->claimRepository->find($id);
 
@@ -39,19 +43,13 @@ class RewardClaimController extends Controller
             abort(404);
         }
 
-        if ($claim->claimed_by_id !== auth()->id()) {
-            abort(403, 'Unauthorized.');
-        }
+        Gate::authorize('claim', $claim);
 
         if ($claim->status === 'paid') {
             return redirect()->back()->with('error', 'Reward has already been paid.');
         }
 
-        $validated = $request->validate([
-            'bank_name' => 'required|string|max:100',
-            'account_number' => 'required|string|max:50',
-            'account_name' => 'required|string|max:255',
-        ]);
+        $validated = $request->validated();
 
         $this->claimRepository->update($id, [
             'bank_name' => $validated['bank_name'],
